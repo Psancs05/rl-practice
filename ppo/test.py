@@ -7,6 +7,8 @@ from gym.spaces import Box
 from nes_py.wrappers import JoypadSpace
 from gym_super_mario_bros.actions import RIGHT_ONLY
 
+from PPO import PPO
+
 
 IMG_HEIGHT = 84
 IMG_WIDTH = 84
@@ -45,15 +47,23 @@ def main():
     env = JoypadSpace(env, MOVEMENT)
     env = GrayScaleAndResizeWrapper(env, IMG_HEIGHT, IMG_WIDTH)
 
+
+    # Load the PPO agent
+    ppo_checkpoint = "model_checkpoints/ppo/ppo_model_1000000.pth"
+    # ppo = PPO.load(ppo_checkpoint)
+
     state, _ = env.reset()
     done = False
+    total_reward = 0
 
     # Play a single game with render mode on
     while not done:
         action = env.action_space.sample()
         state, reward, done, _, __ = env.step(action)
         env.render(mode='human')
-        time.sleep(0.003)
+        total_reward += reward
+
+    print("Reward: ", total_reward)
 
     env.close()
     cv2.destroyAllWindows()
