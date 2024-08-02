@@ -33,7 +33,7 @@ class GrayScaleAndResizeWrapper(gym.ObservationWrapper):
 
 # Wrapper that skips frames and stacks them
 class SkipAndStackFramesWrapper(gym.Wrapper):
-    def __init__(self, env, skip=4, stack=4):
+    def __init__(self, env, skip, stack):
         super(SkipAndStackFramesWrapper, self).__init__(env)
         self.skip = skip
         self.stack = stack
@@ -72,8 +72,8 @@ class SkipAndStackFramesWrapper(gym.Wrapper):
         return self.env.render(mode)
     
 
-def apply_wrappers(env, movement, img_height, img_width):
+def apply_wrappers(env, movement, img_height=84, img_width=84, skip=4, stack=4):
     env = JoypadSpace(env, movement)
     env = GrayScaleAndResizeWrapper(env, img_height, img_width)
-    env = SkipAndStackFramesWrapper(env, skip=4)
+    env = SkipAndStackFramesWrapper(env, skip, stack)
     return env
