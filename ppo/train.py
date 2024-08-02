@@ -102,6 +102,10 @@ def main():
     ppo_agent = PPO(input_channels, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, img_dim=(IMG_HEIGHT, IMG_WIDTH))
     os.makedirs('model_checkpoints/ppo', exist_ok=True)
 
+    # Get model summary
+    total_params = sum(p.numel() for p in ppo_agent.policy_old.parameters())
+    print(f'Total number of parameters: {total_params}')
+
     # ========================== Trainig ==========================
     time_step = 0
     episode_num = 0

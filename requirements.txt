@@ -1,0 +1,7 @@
+gym[other]==0.26.2
+torch
+pandas
+numpy==1.24.4
+tqdm
+gym-super-mario-bros
+opencv-python
