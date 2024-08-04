@@ -1,0 +1,22 @@
+program: src/ddqn/train.py
+method: bayes
+metric:
+  goal: maximize
+  name: episode_reward_mean
+parameters:
+  sync_network_rate:
+    max: 20000
+    min: 5000
+    distribution: int_uniform
+  batch_size:
+    values: [32, 128, 256]
+  eps_decay:
+    max: 0.996
+    min: 0.99
+    distribution: uniform
+  gamma:
+    values: [0.9, 0.999]
+  lr:
+    max: 1e-3
+    min: 1e-5
+    distribution: uniform

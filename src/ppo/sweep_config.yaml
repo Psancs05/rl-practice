@@ -1,0 +1,20 @@
+program: src/ppo/train.py
+method: bayes
+metric:
+  goal: maximize
+  name: episode_reward_mean
+parameters:
+  update_timestep:
+    values: [5000, 1000]
+  gamma:
+    values: [0.99, 0.999]
+  lr_actor:
+    max: 1e-3
+    min: 1e-5
+    distribution: uniform
+  lr_critic:
+    max: 1e-3
+    min: 1e-5
+    distribution: uniform
+  k_epochs:
+    values: [80, 150]
