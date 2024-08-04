@@ -78,6 +78,7 @@ def main():
     # ========================== WandB ==========================
     wandb.init(project="mario-ppo", sync_tensorboard=True)
     wandb.require("core")
+    model_id = wandb.run.id
 
     # add hyperparameters to wandb
     wandb.config.lr_actor = lr_actor
@@ -123,7 +124,6 @@ def main():
             # save model checkpoint
             if time_step % save_model_steps == 0:
                 print(f"------ Saving model checkpoint at timestep {time_step} ------")
-                model_id = wandb.run.id
                 ppo_agent.save(f"{checkpoint_base_path}_{episode_num}_{model_id}.pth")
 
             # log model info

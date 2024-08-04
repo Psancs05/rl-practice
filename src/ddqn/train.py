@@ -23,7 +23,7 @@ def main():
 
 
     # ========================== Hiperparameters ==========================
-    max_episodes = 750                      # max timesteps in one episode
+    max_episodes = 1000                     # max timesteps in one episode
     
     lr = 0.00025                            # learning rate
     gamma = 0.9                             # discount factor
@@ -35,7 +35,7 @@ def main():
     batch_size = 32                         # batch size
     sync_network_rate = 10_000              # sync network rate
 
-    save_model_episodes = 750               # save model every n episodes
+    save_model_episodes = 1000              # save model every n episodes
     checkpoint_base_path = "model_checkpoints/ddqn/ddqn_model"
 
     log_info_episodes = 10                  # log model info every n episodes
@@ -60,6 +60,7 @@ def main():
     # ========================== WandB ==========================
     wandb.init(project="mario-ddqn", sync_tensorboard=False)
     wandb.require("core")
+    model_id = wandb.run.id
 
     wandb.watch(ddqn_agent.online_network)
     wandb.watch(ddqn_agent.target_network)
@@ -112,11 +113,7 @@ def main():
             "episode_reward_mean": episode_reward_mean,
             "epsilon": ddqn_agent.epsilon,
             "actions": wandb.Histogram(episode_actions)
-        })
-        # wandb.log({})
-        # wandb.log({})
-        # wandb.log({})
-        # wandb.log({})      
+        })    
 
         episode_num += 1
         # print(f"Reward: {current_ep_reward}")
@@ -124,7 +121,7 @@ def main():
         # Save model
         if (episode_num + 1) % save_model_episodes == 0:
             print(f"----- Saving model at episode {episode_num + 1} -----")
-            ddqn_agent.save(f"{checkpoint_base_path}_{episode_num + 1}_iter.pth")     
+            ddqn_agent.save(f"{checkpoint_base_path}_{episode_num + 1}_{model_id}_iter.pth")     
 
         # Log model info
         if (episode_num + 1) % log_info_episodes == 0:
