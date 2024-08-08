@@ -4,23 +4,22 @@ import cv2
 import wandb
 import time
 from tqdm import trange
-from gym_super_mario_bros.actions import RIGHT_ONLY
+from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 
 from DDQN import DDQNAgent
-from ddqn_t import DDQNTAgent
 from src.wrappers import apply_wrappers
 
 
 IMG_HEIGHT = 84
 IMG_WIDTH = 84
-MOVEMENT = RIGHT_ONLY    
+MOVEMENT = SIMPLE_MOVEMENT    
 
 
 def main():
     # Define the environment
     env_name = "SuperMarioBros-1-1-v0"
     env = gym.make(env_name, apply_api_compatibility=True, render_mode='rgb_array')
-    env = apply_wrappers(env, MOVEMENT, IMG_HEIGHT, IMG_WIDTH, 4, 2)
+    env = apply_wrappers(env, MOVEMENT, IMG_HEIGHT, IMG_WIDTH, skip=4, stack=2)
 
 
     # ========================== Hiperparameters ==========================
@@ -65,29 +64,44 @@ def main():
     os.makedirs('model_checkpoints/ddqn', exist_ok=True)
 
     # ========================== WandB ==========================
-    # wandb.init(project="mario-ddqn-final", sync_tensorboard=False)
-    # wandb.require("core")
-    # model_id = wandb.run.id
+    wandb.init(project="mario-rl-ddqn-git", sync_tensorboard=False)
+    wandb.require("core")
+    model_id = wandb.run.id
 
-    # # add hyperparameters to wandb
-    # wandb.config.lr = lr
-    # wandb.config.gamma = gamma
-    # wandb.config.epsilon = epsilon
-    # wandb.config.eps_decay = eps_decay
-    # wandb.config.eps_min = eps_min
-    # wandb.config.replay_buffer_capacity = replay_buffer_capacity
-    # wandb.config.batch_size = batch_size
-    # wandb.config.sync_network_rate = sync_network_rate
-    # wandb.config.save_model_episodes = save_model_episodes
-    # wandb.config.log_info_episodes = log_info_episodes
+    wandb.config.total_episodes = max_episodes
+    wandb.config.learning_rate = lr
+    wandb.config.discount_factor = gamma
+    wandb.config.epsilon = epsilon
+    wandb.config.epsilon_decay = eps_decay
+    wandb.config.epsilon_start = epsilon
+    wandb.config.epsilon_min = eps_min
+    wandb.config.replay_buffer_capacity = replay_buffer_capacity
+    wandb.config.batch_size = batch_size
+    wandb.config.sync_network_rate = sync_network_rate
+    wandb.config.update_steps = update_steps
+    wandb.config.min_exp = min_exp
+    wandb.config.save_model_episodes = save_model_episodes
+    wandb.config.checkpoint_base_path = checkpoint_base_path
+    wandb.config.log_info_episodes = log_info_episodes
+    wandb.config.log_movements_steps = log_movements_episodes
 
     # ========================== Training ==========================
     total_steps = 0
+    total_reward = 0
+    total_time = 0
+    episode_reward_mean = 0
+    episode_time_mean = 0
 
-    for _ in trange(max_episodes):
+    for ep in trange(max_episodes):
 
         state, _ = env.reset()
         done = False
+        q, loss = None, None
+
+        episode_reward = 0
+        episode_time = 0
+        episode_actions = []
+        start_ep_time = time.time()
 
         while not done:
             total_steps += 1
@@ -95,6 +109,9 @@ def main():
 
             action = ddqn_agent.select_action(state)
             next_state, reward, done, _, info = env.step(action)
+
+            episode_actions.append(action)
+            episode_reward += reward
 
             ddqn_agent.add_to_buffer(state, action, reward, next_state, done)
             state = next_state
@@ -109,43 +126,46 @@ def main():
 
             # Update model
             if total_steps % update_steps == 0:
-                ddqn_agent.update()
+                q, loss = ddqn_agent.update()
+            else:
+                q, loss = None, None
+
+            # Save model
+            if ep % save_model_episodes == 0:
+                ddqn_agent.save(f"{checkpoint_base_path}_{total_steps}_{model_id}_iter.pth")
+
+            # Log episode actions
+            if ep % log_movements_episodes == 0:
+                wandb.log({"episode_actions": wandb.Histogram(episode_actions)})
+
+        # Stats
+        end_ep_time = time.time()
+
+        episode_time += end_ep_time - start_ep_time
+        total_time += episode_time
+        episode_time_mean = total_time / (ep + 1)
+
+        total_reward += reward
+        episode_reward_mean = total_reward / (ep + 1)
 
 
-        # end_ep_time = time.time()
-        # time_per_episode = end_ep_time - start_ep_time
-        # total_time += end_ep_time - start_ep_time
-        # time_avg_per_episode = total_time / episode_num
+        wandb.log({
+            "episode_reward": episode_reward,
+            "epsilon": epsilon,
+            "episode": ep,
+            "q_value": q,
+            "loss": loss,
+            "distance": info['x_pos'],
+            "episode_time": episode_time,
+            "episode_time_mean": episode_time_mean,
+            "episode_reward": episode_reward,
+            "episode_reward_mean": episode_reward_mean
+        })
 
-        # total_reward += current_ep_reward
-        # episode_reward_mean = total_reward / (episode_num + 1)
-        # episode_num += 1
-       
-        # # Save model
-        # if (episode_num + 1) % save_model_episodes == 0:
-        #     print(f"----- Saving model at episode {episode_num} -----")
-        #     ddqn_agent.save(f"{checkpoint_base_path}_{episode_num}_{model_id}_iter.pth")    
-
-        # # Log model info
-        # if (episode_num + 1) % log_info_episodes == 0:
-        #     print(f"Episode: {episode_num + 1}, Total reward: {current_ep_reward}, Mean reward: {episode_reward_mean}, Epsilon: {ddqn_agent.epsilon}")
-        
-        # # log movements
-        # if episode_num % log_movements_episodes == 0:
-        #     wandb.log({"episode_actions": wandb.Histogram(episode_actions)})
-
-        # wandb.log({
-        #     "episode_reward": current_ep_reward,
-        #     "episode_reward_mean": episode_reward_mean,
-        #     "epsilon": ddqn_agent.epsilon,
-        #     "episode_num": episode_num,
-        #     "time_per_episode": time_per_episode,
-        #     "time_avg_per_episode": time_avg_per_episode
-        # })    
 
     env.close()
     cv2.destroyAllWindows()
-    # wandb.finish()
+    wandb.finish()
 
 
 if __name__ == "__main__":
