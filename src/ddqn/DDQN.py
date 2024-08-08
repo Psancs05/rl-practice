@@ -87,6 +87,7 @@ class DDQNAgent:
         self.lr = lr
         self.gamma = gamma
         self.epsilon = epsilon
+        self.epsilon_start = epsilon
         self.eps_decay = eps_decay
         self.eps_min = eps_min
         self.bs = bs
@@ -119,7 +120,7 @@ class DDQNAgent:
     #     self.epsilon = max(self.epsilon * self.eps_decay, self.eps_min)
 
     def get_epsilon(self, step):
-        return self.eps_min + (self.epsilon - self.eps_min) * math.exp(-1 * ((step+1) / self.eps_decay))
+        return self.eps_min + (self.epsilon_start - self.eps_min) * math.exp(-1 * ((step+1) / self.eps_decay))
 
 
     def add_to_buffer(self, state, action, reward, next_state, done):
