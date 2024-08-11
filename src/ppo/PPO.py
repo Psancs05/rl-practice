@@ -87,19 +87,6 @@ class ActorCritic(nn.Module):
         state_val = self.critic_fc(conv_out)
         return action_probs, state_val
 
-    # def act(self, state):
-    #     # Forward pass through the convolutional layers
-    #     conv_out = self.conv(state).view(state.size(0), -1)
-    #     action_probs = self.actor_fc(conv_out)
-    #     dist = Categorical(action_probs)
-
-    #     # Sample an action from the distribution
-    #     action = dist.sample()
-    #     action_logprob = dist.log_prob(action)
-    #     state_val = self.critic_fc(conv_out)
-
-    #     return action.detach(), action_logprob.detach(), state_val.detach()
-
     def evaluate(self, old_states, old_actions):
         # Evaluate the old actions and values from the buffer
         if old_states.dim() == 3:  # Check if tensor has shape (batch_size, height, width)

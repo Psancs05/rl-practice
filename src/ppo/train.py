@@ -35,20 +35,7 @@ def main():
     eps_clip = 0.2
     k_epochs = 4
     total_timesteps = 1_000_000_000
-    update_timestep = 2048
-    # gae_lambda = 0.95
-
-    # max_training_steps = int(5e6)     
-
-    # # update_episode = 5                   
-    # update_steps = 2048
-    # K_epochs = 5                          
-
-    # eps_clip = 0.2                         
-    # gamma = 0.99                          
-
-    # lr_actor = 0.0001                       
-    # lr_critic = 0.0001              
+    update_timestep = 2048            
 
     save_model_steps = 100_000          
     checkpoint_base_path = "model_checkpoints/ppo/ppo_model"
@@ -62,28 +49,7 @@ def main():
     # state_dim = env.observation_space.shape
     # input_channels = state_dim[0]
 
-
-    # ========================== Initial Hyperparameters ==========================
-    # print("------- Initial Hyperparameters -------")
-
-    # print("Action Dimension: ", action_dim)
-    # print("State Dimension: ", state_dim)
-    # print("Input channels: ", input_channels)
-
-    # print("Environment: ", env_name)
-    # print("Max training episodes: ", max_training_episodes)
-    # # print("Update policy every n episodes: ", update_episode)
-    # print("Update policy every n steps: ", update_steps)
-    # print("Update policy for K epochs in one PPO update: ", K_epochs)
-    # print("Clip parameter for PPO: ", eps_clip)
-    # print("Discount factor: ", gamma)
-    # print("Learning rate for actor network: ", lr_actor)
-    # print("Learning rate for critic network: ", lr_critic)
-
-    # print("--------------------------------------\n")
-
     # ========================== Model ==========================
-    # ppo_agent = PPO(input_channels, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, img_dim=(IMG_HEIGHT, IMG_WIDTH))
     ppo_agent = PPO(input_channels, action_dim, lr, gamma, k_epochs, eps_clip, img_dim)
     os.makedirs('model_checkpoints/ppo', exist_ok=True)
 
@@ -95,19 +61,6 @@ def main():
     wandb.init(project="mario-ppo-final", sync_tensorboard=False)
     wandb.require("core")
     model_id = wandb.run.id
-
-    # add hyperparameters to wandb
-    # wandb.config.lr_actor = lr_actor
-    # wandb.config.lr_critic = lr_critic
-    # wandb.config.gamma = gamma
-    # wandb.config.K_epochs = K_epochs
-    # wandb.config.eps_clip = eps_clip
-    # wandb.config.max_training_episodes = max_training_episodes
-    # # wandb.config.update_episode = update_episode
-    # wandb.config.update_steps = update_steps
-    # wandb.config.save_model_episodes = save_model_episodes
-    # wandb.config.log_info_episodes = log_info_episodes
-    # wandb.config.total_params = total_params
 
     wandb.watch(ppo_agent.policy_old)
     wandb.watch(ppo_agent.policy)
@@ -126,77 +79,6 @@ def main():
     wandb.config.movement = MOVEMENT
 
     # # ========================== Trainig ==========================
-    # episode_num = 1
-    # episode_reward_mean = 0
-    # total_reward = 0
-    # total_time = 0
-    # total_steps = 0
-
-    # # while episode_num <= max_training_episodes:
-    # while total_steps <= max_training_steps:
-    #     state, _ = env.reset()
-    #     current_ep_reward = 0
-    #     done = False
-    #     episode_actions = []
-
-    #     start_ep_time = time.time()
-
-    #     while not done:
-    #         action = ppo_agent.select_action(state)
-    #         next_state, reward, done, _, __ = env.step(action)
-
-    #         ppo_agent.buffer.rewards.append(reward)
-    #         ppo_agent.buffer.is_terminals.append(done)
-
-    #         current_ep_reward += reward
-    #         episode_actions.append(action)
-            
-    #         total_steps += 1
-    #         state = next_state
-
-    #         # update PPO agent
-    #         if total_steps % update_steps == 0:
-    #             loss = ppo_agent.update()
-    #             print(f"Loss: {loss}")
-
-    #         if done:
-    #             break
-
-    #     end_ep_time = time.time()
-    #     time_per_episode = end_ep_time - start_ep_time
-    #     total_time += time_per_episode
-    #     time_avg_per_episode = total_time / episode_num
-
-    #     # save model checkpoint
-    #     if episode_num % save_model_episodes == 0:
-    #         print(f"------ Saving model checkpoint at episode {episode_num} ------")
-    #         ppo_agent.save(f"{checkpoint_base_path}_{episode_num}_{model_id}.pth")
-
-    #     # # log movements
-    #     # if episode_num % log_movements_episodes == 0:
-    #     #     wandb.log({"episode_actions": wandb.Histogram(episode_actions)})
-
-    #     # log model info
-    #     if episode_num % log_info_episodes == 0:
-    #         print(f"Model Info: Episode {episode_num}, Reward: {current_ep_reward}, Mean Reward: {episode_reward_mean}")
-
-    #     total_reward += current_ep_reward
-    #     episode_reward_mean = total_reward / episode_num
-    #     episode_num += 1
-
-
-    #     # wandb.log({
-    #     #     "episode_reward": current_ep_reward,
-    #     #     "episode_reward_mean": episode_reward_mean,
-    #     #     "episode_num": episode_num,
-    #     #     "time_per_episode": time_per_episode,
-    #     #     "time_avg_per_episode": time_avg_per_episode
-    #     # })
-
-    # env.close()
-    # cv2.destroyAllWindows()
-    # # wandb.finish()
-
 
     timestep = 0
     episode_num = 1
