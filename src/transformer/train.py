@@ -2,15 +2,14 @@ import gym
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-import time
 import numpy as np
+from tqdm import trange
 from collections import deque
-from model import DecisionTransformer
+from model import DTAgent
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from src.wrappers import apply_wrappers
 
 
-################################## set device ##################################
 print("==================================================================")
 device = torch.device('cpu')
 if torch.cuda.is_available(): 
@@ -36,57 +35,47 @@ def main():
     n_episodes = 1000
     max_steps_per_episode = 5000
     batch_size = 64
-    learning_rate = 1e-4
-    gamma = 0.99  # Factor de descuento
+    gamma = 0.99
     state_dim = env.observation_space.shape[0]
     act_dim = len(SIMPLE_MOVEMENT)
+    skip_interval = 4
+    buffer_size = 10_000
 
     # model hiperparameters
-    context_len = 10
+    context_len = 20
     n_blocks = 4
     h_dim = 128
     n_heads = 4
     drop_p = 0.1
 
     # create the model and optimizer
-    model = DecisionTransformer(
+    agent = DTAgent(
         state_dim=state_dim,
         act_dim=act_dim,
         n_blocks=n_blocks,
         h_dim=h_dim,
         context_len=context_len,
         n_heads=n_heads,
-        drop_p=drop_p
-    ).to(device)
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
+        drop_p=drop_p,
+        buffer_size=buffer_size,
+    )
 
     # get model summary
-    total_params = sum(p.numel() for p in model.parameters())
+    total_params = sum(p.numel() for p in agent.model.parameters())
     print(f'Total number of parameters: {total_params}')
 
-    # Replay buffer
-    replay_buffer = deque(maxlen=10000)
-
-    def select_action(state, actions, returns_to_go, timesteps):
-        with torch.no_grad():
-            action_logits = model(state, actions, returns_to_go, timesteps)
-            action_prob = torch.softmax(action_logits, dim=-1)
-            action = torch.multinomial(action_prob, num_samples=1)
-        return action.item()
-
     # training loop
-    start_time = time.time()
     for episode in range(n_episodes):
         state, info = env.reset()
+
         state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
-        
         actions = torch.zeros((1, context_len), dtype=torch.long).to(device)
         returns_to_go = torch.zeros((1, context_len, 1), dtype=torch.float32).to(device)
         timesteps = torch.zeros((1, context_len), dtype=torch.long).to(device)
         
         episode_reward = 0
-        for t in range(max_steps_per_episode):
-            action = select_action(state, actions, returns_to_go, timesteps)
+        for t in trange(max_steps_per_episode):
+            action = agent.select_action(state, actions, returns_to_go, timesteps)
             
             next_state, reward, done, _, info = env.step(action)
             next_state = torch.tensor(next_state, dtype=torch.float32).unsqueeze(0).to(device)
@@ -94,50 +83,22 @@ def main():
             episode_reward += reward
             
             # add the transition to the replay buffer
-            replay_buffer.append((state, action, reward, next_state, done))
-            
+            if t % skip_interval == 0:
+                agent.store_transition(state, action, reward, next_state, done)
+
             state = next_state
             
             if done:
                 break
+
+        # update the model
+        agent.update(batch_size, gamma, timesteps)
         
-        # train the model
-        if len(replay_buffer) >= batch_size:
-            batch = np.random.choice(len(replay_buffer), batch_size, replace=False)
-            
-            states, actions, rewards, next_states, dones = zip(*[replay_buffer[idx] for idx in batch])
-            
-            states = torch.cat(states).to(device)
-            actions = torch.tensor(actions, dtype=torch.long).unsqueeze(-1).to(device)
-            rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(-1).to(device)
-            next_states = torch.cat(next_states).to(device)
-            dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(-1).to(device)
-            
-            returns_to_go = torch.zeros_like(rewards).to(device)
-            future_return = 0.0
-            for i in reversed(range(rewards.size(0))):
-                future_return = rewards[i] + gamma * future_return * (1 - dones[i])
-                returns_to_go[i] = future_return
-            
-            # forward pass
-            action_preds = model(states, actions, returns_to_go, timesteps)
-            
-            # compute the loss
-            loss = F.cross_entropy(action_preds, actions.squeeze(-1))
-            
-            # backward pass
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
         
         print(f'Episode {episode+1}/{n_episodes}, Reward: {episode_reward}')
 
-
-    end_time = time.time()
-    print(f'Training took: {end_time - start_time} seconds')
-
     # save the model
-    torch.save(model.state_dict(), 'decision_transformer.pth')
+    agent.save(f"model_checpoints/decision_transformer/dt.pth")
         
     env.close()
 
