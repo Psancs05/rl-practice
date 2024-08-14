@@ -3,7 +3,7 @@ import gym
 import cv2
 import wandb
 import time
-from tqdm import trange
+from tqdm import tqdm
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 
 from DDQN import DDQNAgent
@@ -28,7 +28,7 @@ def main():
     gamma = 0.99                       # discount factor
 
     epsilon = 1.0                      # exploration factor
-    eps_decay = 10**6                  # epsilon decay
+    eps_decay = 5**4                  # epsilon decay
     eps_min = 0.05                     # minimum epsilon
 
     replay_buffer_capacity = 40_000    # replay buffer capacity
@@ -92,9 +92,9 @@ def main():
     episode_reward_mean = 0
     episode_time_mean = 0
 
-    for ep in trange(max_episodes):
+    for ep in tqdm(range(max_episodes)):
 
-        state, _ = env.reset()
+        state, info = env.reset()
         done = False
         q, loss = None, None
 
@@ -103,9 +103,11 @@ def main():
         episode_actions = []
         start_ep_time = time.time()
 
+        epsilon = ddqn_agent.get_epsilon(ep)
+        ddqn_agent.epsilon = epsilon
+
         while not done:
             total_steps += 1
-            epsilon = ddqn_agent.get_epsilon(total_steps)
 
             action = ddqn_agent.select_action(state)
             next_state, reward, done, _, info = env.step(action)
@@ -134,9 +136,9 @@ def main():
             if ep % save_model_episodes == 0:
                 ddqn_agent.save(f"{checkpoint_base_path}_{total_steps}_{model_id}_iter.pth")
 
-            # Log episode actions
-            if ep % log_movements_episodes == 0:
-                wandb.log({"episode_actions": wandb.Histogram(episode_actions)})
+        # Log episode actions
+        if ep % log_movements_episodes == 0:
+            wandb.log({"episode_actions": wandb.Histogram(episode_actions)})
 
         # Stats
         end_ep_time = time.time()
@@ -145,7 +147,7 @@ def main():
         total_time += episode_time
         episode_time_mean = total_time / (ep + 1)
 
-        total_reward += reward
+        total_reward += episode_reward
         episode_reward_mean = total_reward / (ep + 1)
 
 
