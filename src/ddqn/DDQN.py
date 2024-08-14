@@ -86,10 +86,13 @@ class DDQNAgent:
         self.action_dim = action_dim
         self.lr = lr
         self.gamma = gamma
+        
         self.epsilon = epsilon
         self.epsilon_start = epsilon
-        self.eps_decay = eps_decay
-        self.eps_min = eps_min
+        self.epsilon_final = eps_min
+        self.decay = eps_decay
+        
+        # self.eps_min = eps_min
         self.bs = bs
         self.sync_network_steps = sync_network_steps
 
@@ -119,8 +122,10 @@ class DDQNAgent:
     #     # Choose between epsilon decay or epsilon min
     #     self.epsilon = max(self.epsilon * self.eps_decay, self.eps_min)
 
-    def get_epsilon(self, step):
-        return self.eps_min + (self.epsilon_start - self.eps_min) * math.exp(-1 * ((step+1) / self.eps_decay))
+    def get_epsilon(self, t):
+        epsilon = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * math.exp(-1 * ((t + 1) / self.decay))
+        # print("step", t, "epsilon", epsilon, "epsilon_start", self.epsilon_start, "epsilon_final", self.epsilon_final, "decay", self.decay, "epsilon_model", self.epsilon)
+        return epsilon
 
 
     def add_to_buffer(self, state, action, reward, next_state, done):
@@ -166,5 +171,5 @@ class DDQNAgent:
         torch.save(self.online_network.state_dict(), checkpoint_path)
 
     def load(self, checkpoint_path):
-        self.online_network.load_state_dict(torch.load(checkpoint_path))
-        self.target_network.load_state_dict(torch.load(checkpoint_path))
+        self.online_network.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        self.target_network.load_state_dict(torch.load(checkpoint_path, map_location=device))
