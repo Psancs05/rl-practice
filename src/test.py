@@ -1,5 +1,4 @@
 import cv2
-
 import gym
 import torch
 import time
@@ -10,7 +9,7 @@ from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from ppo.PPO import PPO
 from ddqn.DDQN import DDQNAgent
 from ddqn.ddqn_t import DDQNTAgent
-from transformer.model import DTAgent
+from src.transformer.model_imp import DTAgent
 
 
 IMG_HEIGHT = 84
@@ -28,16 +27,23 @@ def main():
     input_channels = state_dim[0]
 
     # Load the model checkpoint
-    checkpoint = "model_checkpoints/ppo/ppo_model_40000_drfr5fjg.pth"
+    checkpoint = "model_checkpoints/ddqn/ddqn_model_1725510_km3nsygg_iter.pth"
     
     if "ddqn" in checkpoint:
         print("Using DDQN Agent")
         agent = DDQNAgent(state_dim, action_dim, 0.00025, 0.99, 0.5, 5**4, 0.1, 32, 10_000, 40_000)
+        agent.load(checkpoint)
+        agent.target_network.eval()
     elif "ppo" in checkpoint:
         print("Using PPO Agent")
         agent = PPO(input_channels, action_dim, 0.0001, 0.0, 80, 0.2, img_dim=(IMG_HEIGHT, IMG_WIDTH))
+        agent.load(checkpoint)
+        agent.policy_old.eval()
     elif "dt" in checkpoint:
+        print("Using DT Agent")
         agent = DTAgent(state_dim, action_dim, 4, 128, 20, 4, 0.1, 10_000)
+        agent.model.load_state_dict(torch.load(checkpoint, map_location="cpu"))
+        agent.model.eval()
         context_len = 20  # Se asume que context_len es 20, ajusta según tu configuración
         device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     else:
@@ -52,16 +58,24 @@ def main():
         if "dt" in checkpoint:
             # Inicializar secuencias para el DT
             state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
+            states = torch.zeros((1, context_len, 2, IMG_HEIGHT, IMG_WIDTH), dtype=torch.float32).to(device)
             actions = torch.zeros((1, context_len), dtype=torch.long).to(device)
             returns_to_go = torch.zeros((1, context_len, 1), dtype=torch.float32).to(device)
             timesteps = torch.zeros((1, context_len), dtype=torch.long).to(device)
-            epissode_actions = []
+            episode_actions = []
 
         # Play a single game with render mode on
         while not done:
             if "dt" in checkpoint:
-                action = agent.select_action(state, actions, returns_to_go, timesteps)
-                epissode_actions.append(action)
+                # Actualizar la secuencia de estados
+                if i < context_len:
+                    states[0, i] = state
+                else:
+                    states[0, :-1] = states[0, 1:].clone()
+                    states[0, -1] = state
+
+                action = agent.select_action(states, actions, returns_to_go, timesteps)
+                episode_actions.append(action)
             elif "ppo" in checkpoint:
                 action, _ = agent.select_action(state)
             else:
@@ -74,13 +88,12 @@ def main():
             total_reward += reward
 
             if "dt" in checkpoint:
-                # Desplazar las secuencias si es necesario
-                if i < context_len - 1:
+                # Actualizar las secuencias de acciones, returns_to_go, y timesteps
+                if i < context_len:
                     actions[0, i] = action
                     returns_to_go[0, i, 0] = reward
                     timesteps[0, i] = i
                 else:
-                    # Usar clone() para evitar problemas de referencia en memoria
                     actions[0, :-1] = actions[0, 1:].clone()
                     actions[0, -1] = action
                     returns_to_go[0, :-1, 0] = returns_to_go[0, 1:, 0].clone()
@@ -92,7 +105,7 @@ def main():
             else:
                 state = next_state
 
-            i += 1
+            time.sleep(0.02)
 
         print(f"Total reward: {total_reward}, distance: {info['x_pos']}, time: {i}")
 
