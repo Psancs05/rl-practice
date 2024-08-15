@@ -21,30 +21,38 @@ else:
 print("==================================================================")
 
 
+############################## Decision Transformer ##############################
+
 # Replay buffer
 class ReplayBuffer:
-    def __init__(self, buffer_size):
+    def __init__(self, buffer_size, context_len):
+        self.context_len = context_len
+        self.buffer_size = buffer_size
+        
         self.actions = []
         self.states = []
         self.rewards = []
         self.next_states = []
         self.dones = []
-        self.buffer_size = buffer_size
+        
+        self.buffer = []
 
     def __len__(self):
-        return len(self.states)
+        return len(self.buffer)
     
     def __getitem__(self, idx):
-        return self.states[idx], self.actions[idx], self.rewards[idx], self.next_states[idx], self.dones[idx]
+        return self.buffer[idx]
+
+    def add(self, state_seq, action_seq, reward_seq, next_state_seq, done_seq):
+        if len(self.buffer) >= self.buffer_size:
+            self.buffer.pop(0)
+        self.buffer.append((state_seq, action_seq, reward_seq, next_state_seq, done_seq))
 
     def clear(self):
-        del self.states[:]
-        del self.actions[:]
-        del self.rewards[:]
-        del self.next_states[:]
-        del self.dones[:]
+        del self.buffer[:]
 
 
+# Model
 class DecisionTransformer(nn.Module):
     def __init__(self, state_dim, act_dim, n_blocks, h_dim, context_len, n_heads, drop_p):
         super().__init__()
@@ -85,51 +93,50 @@ class DecisionTransformer(nn.Module):
         self.action_head = nn.Linear(h_dim, act_dim)
         self.ln = nn.LayerNorm(h_dim)
 
-
     def forward(self, states, actions, returns_to_go, timesteps):
-        # Process the images through the convolutional layers
-        batch_size = states.shape[0]
-        context_len = actions.shape[1]
+        batch_size, seq_len, _, _, _ = states.shape
         
-        # Obtain the positional embeddings
-        position_embeddings = self.positional_embedding[:, :context_len, :]  # (1, context_len, h_dim)
+        # Process the images through the convolutional layers and flatten
+        states = states.view(-1, *states.shape[-3:])
+        state_embeddings = self.conv_layers(states)
+        state_embeddings = self.state_embedding(state_embeddings)
+        state_embeddings = state_embeddings.view(batch_size, seq_len, -1)
         
-        # Obtain the embeddings of the states and add the positional embeddings to them
-        state_embeddings = self.conv_layers(states)  # (batch_size, conv_out_size)
-        state_embeddings = self.state_embedding(state_embeddings)  # (batch_size, h_dim)
-        state_embeddings = state_embeddings.unsqueeze(1).repeat(1, context_len, 1)  # (batch_size, context_len, h_dim)
-        state_embeddings = state_embeddings + position_embeddings  # Correct broadcasting
-
-        # Obtain the embeddings of the actions and add the positional embeddings to them
-        action_embeddings = self.action_embedding(actions)  # (batch_size, context_len, h_dim)
-        action_embeddings = action_embeddings + position_embeddings  # Correct broadcasting
-
-        # Obtain the embeddings of the returns and add the positional embeddings to them
-        return_embeddings = self.return_embedding(returns_to_go)  # (batch_size, context_len, h_dim)
-        return_embeddings = return_embeddings.repeat(batch_size, 1, 1) + position_embeddings  # Shape adjustment and broadcasting
+        # Process actions and returns_to_go
+        action_embeddings = self.action_embedding(actions)
         
-        # Now all the embeddings have the shape (batch_size, context_len, h_dim)
+        # Expand returns_to_go if necessary
+        if returns_to_go.dim() == 2:
+            returns_to_go = returns_to_go.unsqueeze(-1)
         
-        # Stack the embeddings along the new dimension
-        x = torch.cat((state_embeddings, action_embeddings, return_embeddings), dim=1)  # (batch_size, 3*context_len, h_dim)
+        return_embeddings = self.return_embedding(returns_to_go)
         
-        # Apply LayerNorm and Transformer
+        # Positional encodings
+        timestep_embeddings = self.positional_embedding[:, :seq_len, :]
+        timestep_embeddings = timestep_embeddings.expand(batch_size, -1, -1)
+        
+        # Add positional embeddings
+        state_embeddings += timestep_embeddings
+        action_embeddings += timestep_embeddings
+        return_embeddings += timestep_embeddings
+        
+        # Concatenate all embeddings
+        x = torch.cat((state_embeddings, action_embeddings, return_embeddings), dim=1)
+        
+        # Transformer
         x = self.ln(x)
         x = self.transformer(x)
         
-        # Select the last element of the sequence
-        x = x[:, -1, :]  # (batch_size, h_dim)
-        
-        # Obtain the action logits
-        action_logits = self.action_head(x)  # (batch_size, act_dim)
+        # Output
+        x = x[:, -1, :]
+        action_logits = self.action_head(x)
         
         return action_logits
 
 
-
+# DT Agent
 class DTAgent:
     def __init__(self, state_dim, act_dim, n_blocks, h_dim, context_len, n_heads, drop_p, buffer_size):
-
         self.model = DecisionTransformer(
             state_dim=state_dim,
             act_dim=act_dim,
@@ -142,59 +149,83 @@ class DTAgent:
         
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4)
         
-        self.replay_buffer = ReplayBuffer(buffer_size)
-        
+        self.replay_buffer = ReplayBuffer(buffer_size, 20)
+        self.context_len = context_len
 
-    def select_action(self, state, actions, returns_to_go, timesteps):
+    def select_action(self, states, actions, returns_to_go, timesteps):
         with torch.no_grad():
-            action_logits = self.model(state, actions, returns_to_go, timesteps)
+            action_logits = self.model(states, actions, returns_to_go, timesteps)
             action_prob = torch.softmax(action_logits, dim=-1)
             action = torch.multinomial(action_prob, num_samples=1)
         return action.item()
+
     
     def store_transition(self, state, action, reward, next_state, done):
+        if len(self.replay_buffer.states) >= self.context_len:
+            self.replay_buffer.states.pop(0)
+            self.replay_buffer.actions.pop(0)
+            self.replay_buffer.rewards.pop(0)
+            self.replay_buffer.next_states.pop(0)
+            self.replay_buffer.dones.pop(0)
+        
         self.replay_buffer.states.append(state)
         self.replay_buffer.actions.append(action)
         self.replay_buffer.rewards.append(reward)
         self.replay_buffer.next_states.append(next_state)
         self.replay_buffer.dones.append(done)
-    
-    def update(self, batch_size, gamma, timesteps):
-        # train the model
+        
+        # Add the sequence to the replay buffer
+        if len(self.replay_buffer.states) == self.context_len:
+            self.replay_buffer.add(
+                torch.stack(list(self.replay_buffer.states)),
+                torch.tensor(list(self.replay_buffer.actions)),
+                torch.tensor(list(self.replay_buffer.rewards)),
+                torch.stack(list(self.replay_buffer.next_states)),
+                torch.tensor(list(self.replay_buffer.dones))
+            )
+
+
+    def update(self, batch_size, gamma):
         if len(self.replay_buffer) >= batch_size:
             batch = np.random.choice(len(self.replay_buffer), batch_size, replace=False)
             
-            # sample the batch
-            states, actions, rewards, next_states, dones = zip(*[self.replay_buffer[i] for i in batch])
+            # Get the batch data
+            batch_data = [self.replay_buffer[i] for i in batch]
+            states, actions, rewards, next_states, dones = zip(*batch_data)
 
-            states = torch.cat(states).to(device)
-            actions = torch.tensor(actions, dtype=torch.long).unsqueeze(-1).to(device)
-            rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(-1).to(device)
-            next_states = torch.cat(next_states).to(device)
-            dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(-1).to(device)
+            # Convert to tensors
+            states = torch.stack(states).squeeze(2).to(device)
+            actions = torch.stack([a.clone().detach().long() for a in actions]).to(device)
+            rewards = torch.stack([r.clone().detach().float() for r in rewards]).unsqueeze(-1).to(device)
+            next_states = torch.stack(next_states).squeeze(2).to(device)
+            dones = torch.stack([d.clone().detach().float() for d in dones]).unsqueeze(-1).to(device)
 
+            # Compute the returns-to-go
             returns_to_go = torch.zeros_like(rewards).to(device)
             future_return = 0.0
-            for i in reversed(range(rewards.size(0))):
-                future_return = rewards[i] + gamma * future_return * (1 - dones[i])
-                returns_to_go[i] = future_return
-            
-            # forward pass
+            for i in reversed(range(rewards.size(1))):
+                future_return = rewards[:, i] + gamma * future_return * (1 - dones[:, i])
+                returns_to_go[:, i] = future_return
+
+            # Get the timesteps
+            timesteps = torch.arange(0, self.context_len).unsqueeze(0).repeat(batch_size, 1).to(device)
+
+            # Forward pass
             action_preds = self.model(states, actions, returns_to_go, timesteps)
             
-            # compute the loss
-            loss = F.cross_entropy(action_preds, actions.squeeze(-1))
+            # Compute the loss
+            loss = F.cross_entropy(action_preds, actions[:, -1])
             
-            # backward pass
+            # Backward pass
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
-            # clear the replay buffer
-            self.replay_buffer.clear()
-
             return loss.item()
-    
+
 
     def save(self, checkpoint_path):
         torch.save(self.model.state_dict(), checkpoint_path)
+
+    def load(self, checkpoint_path):
+        self.model.load_state_dict(torch.load(checkpoint_path, map_location=device))

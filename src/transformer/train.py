@@ -4,7 +4,7 @@ import wandb
 import time
 import os
 from tqdm import trange
-from model import DTAgent
+from src.transformer.model_imp import DTAgent
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from src.wrappers import apply_wrappers
 
@@ -31,7 +31,7 @@ def main():
 
     # ========================== Hiperparameters ==========================
     # training hiperparameters
-    n_episodes = 1000
+    n_episodes = 1_000_000
     batch_size = 64
     gamma = 0.99
     state_dim = env.observation_space.shape[0]
@@ -46,6 +46,8 @@ def main():
     n_heads = 4
     drop_p = 0.1
 
+    update_timestep = 16
+    save_model_episodes = 1_000
     log_movements_episodes = 50
     checkpoint_base_path = "model_checkpoints/dt/dt_model"
 
@@ -95,70 +97,99 @@ def main():
     total_reward = 0
     total_time = 0
 
+    agent.model.train()
+
     for episode in range(n_episodes):
         state, info = env.reset()
         done = False
 
-        epissode_actions = []
-        episode_reward = 0
-
-        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
-        actions = torch.zeros((1, context_len), dtype=torch.long).to(device)
-        returns_to_go = torch.zeros((1, context_len, 1), dtype=torch.float32).to(device)
-        timesteps = torch.zeros((1, context_len), dtype=torch.long).to(device)
+        episode_actions = []
+        episode_states = []
+        episode_rewards = []
+        episode_timesteps = []
         
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
+        episode_states.append(state)
+        steps = 0
+        current_episode_reward = 0
+        current_episode_actions = []
+
         start_time = time.time()
         while not done:
-            action = agent.select_action(state, actions, returns_to_go, timesteps)
-            epissode_actions.append(action)
+            episode_timesteps.append(steps)
+            
+            if len(episode_states) <= context_len:
+                # add padding to the states
+                padded_states = [torch.zeros_like(state) for _ in range(context_len - len(episode_states))] + episode_states
+                actions_tensor = torch.tensor([0] * (context_len - len(episode_actions)) + episode_actions, dtype=torch.long).unsqueeze(0).to(device)
+                returns_to_go = torch.tensor([0.0] * (context_len - len(episode_rewards)) + episode_rewards, dtype=torch.float32).unsqueeze(0).to(device)
+                timesteps_tensor = torch.tensor([0] * (context_len - len(episode_timesteps)) + episode_timesteps, dtype=torch.long).unsqueeze(0).to(device)
+            else:
+                padded_states = episode_states[-context_len:]
+                actions_tensor = torch.tensor(episode_actions[-context_len:], dtype=torch.long).unsqueeze(0).to(device)
+                returns_to_go = torch.tensor(episode_rewards[-context_len:], dtype=torch.float32).unsqueeze(0).to(device)
+                timesteps_tensor = torch.tensor(episode_timesteps[-context_len:], dtype=torch.long).unsqueeze(0).to(device)
+
+            # convert the states to a tensor
+            states_tensor = torch.cat(padded_states).unsqueeze(0)
+            
+            # select the action
+            action = agent.select_action(
+                states_tensor,
+                actions_tensor,
+                returns_to_go,
+                timesteps_tensor
+            )
+            episode_actions.append(action)
+            current_episode_actions.append(action)
             
             next_state, reward, done, _, info = env.step(action)
             next_state = torch.tensor(next_state, dtype=torch.float32).unsqueeze(0).to(device)
+            episode_states.append(next_state)
+            episode_rewards.append(reward)
             
-            # add the transition to the replay buffer
-            if steps % skip_interval == 0:
-                agent.store_transition(state, action, reward, next_state, done)
-
+            # store the transition
+            agent.store_transition(state, action, reward, next_state, done)
+            
             state = next_state
-
-            episode_reward += reward
             steps += 1
+            current_episode_reward += reward
+            
+            # update the model
+            if steps % update_timestep == 0:
+                loss = agent.update(batch_size, gamma)
+                wandb.log({"loss": loss})
             
             if done:
                 break
-
-        # update the model
-        loss = agent.update(batch_size, gamma, timesteps)
-
         
         end_time = time.time()
         episode_time = end_time - start_time
         total_time += episode_time
         episode_time_avg = total_time / (episode + 1)
 
-        total_reward += episode_reward
+        total_reward += current_episode_reward
         episode_reward_mean = total_reward / (episode + 1)
 
         # log movements
         if episode % log_movements_episodes == 0:
-            wandb.log({"episode_actions": wandb.Histogram(epissode_actions)})
+            wandb.log({"episode_actions": wandb.Histogram(current_episode_actions)})
 
         wandb.log({
-            "loss": loss,
             "steps": steps,
+            "distance": info["x_pos"],
             "episode_time": episode_time,
             "episode_time_avg": episode_time_avg,
-            "episode_reward": episode_reward,
+            "episode_reward": current_episode_reward,
             "episode_reward_mean": episode_reward_mean
         })
         
+        print(f'Episode {episode+1}/{n_episodes}, Reward: {current_episode_reward}, Distance: {info["x_pos"]}')
 
-        
-        
-        print(f'Episode {episode+1}/{n_episodes}, Reward: {episode_reward}')
-
-    # save the model
-    agent.save(f"{checkpoint_base_path}_{episode+1}_{model_id}.pth")
+        # save the model
+        if (episode+1) % save_model_episodes == 0:
+            print(f"Saving model at episode {episode+1}")
+            agent.save(f"{checkpoint_base_path}_{episode+1}_{model_id}.pth")
         
     env.close()
     wandb.finish()
