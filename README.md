@@ -19,3 +19,14 @@ Inside the file, you will have to define the agent to use and the checkpoint pat
 * Install dependencies `pip install -r requirements.txt`
 * Run `apt install libgl1-mesa-glx`
 * (Optional) Add project to pythonpath `export PYTHONPATH=$(pwd)` 
+
+
+# Demos
+
+## DDQN
+
+## PPO
+
+## DT1
+
+## DT2
