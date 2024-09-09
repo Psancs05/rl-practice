@@ -24,9 +24,13 @@ Inside the file, you will have to define the agent to use and the checkpoint pat
 # Demos
 
 ## DDQN
+![](https://github.com/jsancs/rl-practice/blob/main/demos/ddqn.gif)
 
 ## PPO
+![](https://github.com/jsancs/rl-practice/blob/main/demos/ppo.gif)
 
 ## DT1
+![](https://github.com/jsancs/rl-practice/blob/main/demos/dt1.gif)
 
 ## DT2
+![](https://github.com/jsancs/rl-practice/blob/main/demos/dt2.gif)
